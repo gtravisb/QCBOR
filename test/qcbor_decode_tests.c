@@ -7904,15 +7904,26 @@ int32_t TagFunTest(void)
       return -2;
    }
 
-   uint64_t puT[] = {CBOR_TAG_CBOR_MAGIC, CBOR_TAG_INVALID64 };
-   
-   bool b = QCBORDecode_ProcessTagNumber(&DCtx,
-                                puT,
-                                &uTagNumber);
+   bool b = QCBORDecode_CheckTagNumber(&DCtx, CBOR_TAG_CBOR_MAGIC);
+   if(b == false) {
+      return -88;
+   }
 
+   if(QCBORDecode_GetError(&DCtx)) {
+      return -1;
+   }
 
-   if(! b || uTagNumber != CBOR_TAG_CBOR_MAGIC) {
-      return -2;
+   uint64_t puTagNumbers[QCBOR_MAX_TAGS_PER_ITEM+1];
+   uint8_t uType;
+   QCBORDecode_PeekTagNumbersAndType(&DCtx, puTagNumbers, &uType);
+   if(QCBORDecode_GetError(&DCtx)) {
+      return -1;
+   }
+   if(uType != QCBOR_TYPE_ARRAY) {
+      return 88;
+   }
+   if(puTagNumbers[0] != CBOR_TAG_CBOR_MAGIC) {
+      return 99;
    }
 
    QCBORItem Item;
@@ -7921,6 +7932,30 @@ int32_t TagFunTest(void)
       return -3;
    }
 
+   uErr = QCBORDecode_GetNext(&DCtx, &Item);
+   if(uErr != QCBOR_SUCCESS /* || Item.uDataType != QCBOR_TYPE_B */) {
+      return -3;
+   }
+
+
+   uTagNumber = QCBORDecode_PeekTagNumber(&DCtx);
+   if(uTagNumber != CBOR_TAG_INVALID64) {
+      return -5;
+   }
+
+   if(QCBORDecode_GetAndResetError(&DCtx) != QCBOR_ERR_TOO_MANY_TAGS) {
+      return -1;
+   }
+
+
+   b = QCBORDecode_CheckTagNumber(&DCtx, 10489608748473423768UL);
+   if(b == false) {
+      return -88;
+   }
+
+   if(QCBORDecode_GetError(&DCtx)) {
+      return -1;
+   }
 
 
    return 0;

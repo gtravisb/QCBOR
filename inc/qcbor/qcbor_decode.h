@@ -763,7 +763,7 @@ typedef struct _QCBORItem {
     * only allows nesting to a depth of @ref QCBOR_MAX_TAGS_PER_ITEM,
     * usually 4.
     *
-    * Tag numbers in the array below and equal to @ref
+    * Tag numbers in the array less than or equal to @ref
     * QCBOR_LAST_UNMAPPED_TAG are unmapped and can be used
     * directly. Tag numbers above this must be translated through
     * QCBORDecode_GetNthTag().
@@ -773,7 +773,7 @@ typedef struct _QCBORItem {
     * qcbor_spiffy_decode.h for a way to decode tagged types without
     * having to reference this array. Also see @ref Tags-Overview.
     */
-   uint16_t uTags[QCBOR_MAX_TAGS_PER_ITEM];
+   uint16_t uTagNumbers[QCBOR_MAX_TAGS_PER_ITEM];
 
 } QCBORItem;
 
@@ -781,6 +781,8 @@ typedef struct _QCBORItem {
  * An array or map's length is indefinite when it has this value.
  */
 #define QCBOR_COUNT_INDICATES_INDEFINITE_LENGTH UINT16_MAX
+
+
 
 
 
@@ -868,6 +870,10 @@ typedef UsefulBuf (* QCBORStringAllocate)(void *pAllocateCxt, void *pOldMem, siz
  * context may be re-used serially as long as it is re initialized.
  */
 typedef struct _QCBORDecodeContext QCBORDecodeContext;
+
+
+
+
 
 
 /**
@@ -1010,6 +1016,33 @@ void QCBORDecode_SetUpAllocator(QCBORDecodeContext *pCtx,
 
 typedef int (* QCBORTagDecoder)(QCBORItem *pItem);
 
+
+/* One way to handle the decoding of a tag is to
+ install a handler that will be invoked when the
+ tag is encountered. The handler will decode
+ the full tag content and put the decoded result
+ in the QCBORItem with a  new QCBOR type.
+ The types must be in the range of TODO -- TODO.
+
+ 24/16 bytes for each tag handled
+
+ Code is cleaner and more powerful with mapping table.
+
+
+ */
+typedef QCBORError (* QCBORTagHandler)(QCBORItem *pItem, QCBORDecodeContext *pDecoder);
+
+typedef struct {
+   uint64_t uTagNumber;
+   QCBORTagHandler pfHandler;
+} QTH;
+
+
+/* One function or multiple handlers?
+ Multiple handlers allow for a range?
+
+
+ */
 void QCBORDecode_SetTagDecoder(QCBORDecodeContext *pCtx,
                                QCBORTagDecoder    pfTagDecoder);
 
@@ -1269,43 +1302,223 @@ QCBORDecode_PeekNext(QCBORDecodeContext *pCtx, QCBORItem *pDecodedItem);
 
 
 
-/**
- * @brief Peek at  the tag number for the next item (if any).
- *
- * @param[in]  pCtx          The decoder context.
- * @returns  The found tag number or  \ref CBOR_TAG_INVALID64.
- *
- * If the next item is a tag number it is returned. If not \ref CBOR_TAG_INVALID64 is returned.
- *
- * This does NOT advance the traversal cursor, nor consume the tag number.
- * Its use is to look ahead at the tag numbers for possible branching of the
- * protocol decode flow.
- *
- * If there is a decoding error, then \ref CBOR_TAG_INVALID64 is returned and the internal error is set which can be
- * retrived by QCBORDecode_GetError(). If the decoder is already in the error state \ref CBOR_TAG_INVALID64 is returned.
- *
- * See also QCBORDecode_GetTagNumber().
+/* These are the tools for branching decoding based on
+the tag or type of the next item. None of them
+consume input.
+
+Except for QCBORDecode_PeekTagNumbersAndType these
+all work on the outermost tag number (if there is
+only one tag, it is the outermost).
+
+Typical use is an if statement based on
+the check for type or tag to call a particular
+function for decoding that type.
+
+These all work by label (TODO: will we really make this 15 functions?)
+
 */
+
+
+/*
+Check the inner most tag number against a list.
+
+ This checks the innermost tag number, the one
+ closest to the data item against a list of
+ tag numbers, returning true if one matches.
+ This is useful for branching protocol decoding
+ based on tag numbers.
+
+ This returns false if there are no tag numbers
+ on the data item.
+
+When \c bAllowOther is \c false and there is more
+ than one tag number on the data item \c false
+ will be returned. If \c bAllowOther is \c true,
+ then any other tag numbers that surround the
+ most inner will be ignored if they are present.
+ */
+bool
+QCBORDecode_CheckTagNumberInner(QCBORDecodeContext *pCtx,
+                                    bool                bAllowOther,
+                                    const uint64_t     *puExpectedTagNumbers);
+
+
+/* This checks the outermost tag number, the
+ one furtherst from the data item, against
+ a list of tag numbers, returning true if one
+ matches.
+
+ This returns false if there are no tag numbers
+ on the data item.
+
+ This check ignores any nested tag numbers, checking
+ only the outer most one.
+ */
+bool
+QCBORDecode_CheckTagNumberOuter(QCBORDecodeContext *pCtx,
+                                    const uint64_t     *puExpectedTagNumbers);
+
+
+/* Only works if there is only one tag number.
+ Returns invalid if there is more than one
+ tag or there are none. */
 uint64_t
 QCBORDecode_PeekTagNumber(QCBORDecodeContext *pCtx);
 
 
+/*
+
+ Returns true if the next item is of the type.
+
+ False if not or there is a decode error.
+
+ To know if false was returned because of
+ a decode error check the last error.
+ */
+bool
+QCBORDecode_CheckType(QCBORDecodeContext *pCtx, uint8_t uType);
+
+
 /**
- * @brief Consume the next item as a tag number.
+ * @brief Peek at all tag number and type information.
  *
- * @param[in]  pCtx          The decoder context.
- * @returns  The found tag number or  \ref CBOR_TAG_INVALID64.
+ * @param[in]  pCtx    The decoder context.
+ * @param[out] puTagNumbers  Place to return tag numbers on the item. 
+ * @param[out] puType  Place to return data type of the item.
  *
- * If the next item is not a tag number, then the
- * error is set and \ref CBOR_TAG_INVALID64 is returned and
- * the decoder enters the error state.
+ * This peeks ahead to get all the tag numbers and
+ * the type of the next item. If the next item is
+ * a map entry, then the tag numbers and type
+ * for the value, not the label is returned.
  *
- * See QCBORDecode_PeekTagNumber() and QCBORDecode_ProcessTagNumber()
- * for two alternatives that don't enter the error state if
- * the next item is not a tag number.
+ * This main purpose of this is for branching procotol
+ * decode logic conditional on the type and tag numbers
+ * of the next item, a common thing in CBOR.
+ *
+ * This does not advance the traversal cursor.
+ */
+void
+QCBORDecode_PeekTagNumbersAndType(QCBORDecodeContext *pCtx,
+                                  uint64_t            puTagNumbers[QCBOR_MAX_TAGS_PER_ITEM+1],
+                                  uint8_t            *puType);
+
+
+
+
+/**
+ * @brief Peek at  the tag number for the next item (if any).
+ *
+ * @param[in]  pCtx    The decoder context.
+ * @returns  The found tag number or \ref CBOR_TAG_INVALID64.
+ *
+ * If there is a tag number on the next item is returned. If not \ref
+ * CBOR_TAG_INVALID64 is returned.  If there are multiple tag numbers
+ * the first one, the outer most one, is returned.  If the next item
+ * is a map entry, the tag number associated with the value of the map
+ * entry is returned.
+ *
+ * This does not advance the traversal cursor, nor consume the tag
+ * number.  Its use is to look ahead at the tag numbers for possible
+ * branching of the protocol decode flow.
+ *
+ * If there is a decoding error, then \ref CBOR_TAG_INVALID64 is
+ * returned and the internal error is set which can be retrived by
+ * QCBORDecode_GetError(). If the decoder is already in the error
+ * state \ref CBOR_TAG_INVALID64 is returned.
  */
 uint64_t
-QCBORDecode_GetTagNumber(QCBORDecodeContext *pCtx);
+QCBORDecode_PeekTagNumber(QCBORDecodeContext *pCtx);
+
+
+uint8_t
+QCBORDecode_PeekType(QCBORDecodeContext *pCtx);
+
+
+
+/*
+
+ * This returns \c true if first tag number, the
+ * outer most, on the next item is
+ * \ref uTagNumber. This returns \c false if it
+ * is not or there was an error.
+ *
+ * If the next item is a map entry, then the
+ * tag number checked is on the value, not
+ * the label.
+ *
+ * This will set the internal error state if
+ * the next data item is not well formed.
+ */
+bool
+QCBORDecode_CheckTagNumber(QCBORDecodeContext *pCtx,
+                           uint64_t            uTagNumber);
+
+bool
+QCBORDecode_CheckType(QCBORDecodeContext *pCtx,
+                      uint8_t             uType);
+
+/**
+ * @brief Peek at all tag number and type information.
+ *
+ *
+ * This peeks ahead to get all the tag numbers and
+ * the type of the next item. If the next item is
+ * a map entry, then the tag numbers and type is
+ * for the value, not the label.
+ *
+ * This main purpose of this is for branching procotol
+ * decode logic conditional on the type and tag numbers
+ * of the next item, a common thing in CBOR.
+ *
+ * This does not advance the traversal cursor.
+ */
+void
+QCBORDecode_PeekTagNumbersAndType(QCBORDecodeContext *pCtx,
+                                  uint64_t *puTagNumbers,
+                                  uint8_t *puType);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#ifdef CONFUSED_TAG
+
+
+
+/*
+@brief Check the type of the next item.
+
+ This is useful for branching the protocol decode based on the
+ type of the next item. The type of the next item is
+ compared against a supplied list and true is returned
+ if it is in the list. This does not advance the
+ traversal cursor.
+
+ If the next item is a map entry, the type check is on
+ the value of the item, not the label.
+
+ If the value has a tag number and the type to match
+ is QCBOR_TYPE_TAG, then this will return true.
+ See also QCBORDecode_ProcessTagNumber().
+
+ This does not set an error if the type is not matched.
+ It does set an error if there CBOR is not well formed.
+ */
+bool
+QCBORDecode_PeekType(QCBORDecodeContext *pCtx,
+                     const uint8_t *puTypesToMatch,
+                     uint8_t uTypeToMatch);
+
 
 
 /**
@@ -1331,17 +1544,31 @@ QCBORDecode_GetTagNumber(QCBORDecodeContext *pCtx);
  * If the CBOR is not-well formed, then false
  * will be returned and the internal error decode
  * state will set.
+ *
+ * TODO: this works for arrays, but not map's where the tag is on the value
  */
 bool
 QCBORDecode_ProcessTagNumber(QCBORDecodeContext *pCtx,
                              const uint64_t     *puTagNumbersToMatch,
                              uint64_t           *puTagNumberMatched);
-
-
-
-#ifdef CONFUSED_TAG
-
-
+/**
+ * @brief Consume the next item as a tag number.
+ *
+ * @param[in]  pCtx          The decoder context.
+ * @returns  The found tag number or  \ref CBOR_TAG_INVALID64.
+ *
+ * If the next item is not a tag number, then the
+ * error is set and \ref CBOR_TAG_INVALID64 is returned and
+ * the decoder enters the error state.
+ *
+ * See QCBORDecode_PeekTagNumber() and QCBORDecode_ProcessTagNumber()
+ * for two alternatives that don't enter the error state if
+ * the next item is not a tag number.
+ *
+ * TODO: this will work for arrays and sequences, but not maps; what to do?
+ */
+uint64_t
+QCBORDecode_GetTagNumber(QCBORDecodeContext *pCtx);
 /*
 
  If uTagRequirement is QCBOR_TAG_REQUIREMENT_TAG, then the next item
@@ -2423,3 +2650,49 @@ QCBORDecode_VPeekCheckType2(QCBORDecodeContext *pCtx,
 #endif
 
 
+/*
+
+
+ First understand that a tag is a definition of a new
+ data type in CBOR. It is could be a simple thing
+ like time or a complex thing like a CWT.
+
+ Next understand that there is a tag number associated
+ with that new data type.
+
+ Next understand that the point of a tag number is
+ to disambiguate a protocol, to branch the decoding
+ when something might be one type or another. If
+ it is clear in the protocol context that something
+ is of some type, then the definition of the tag
+ is used, but the tag number is not.
+
+ QCBOR's supported mechanism for dealing with this is
+ to have two operations.
+
+ One is a decoder for the new tag type. It does all
+ the hard work of decoding the type. It works
+ on the type whether the tag number is present or not.
+ When the tag type is known to be present by
+ protocol context, it is all that is needed.
+
+ The second are some peek functions that look
+ ahead in the protocol decoding at the type
+ and tag numbers so you can know whether to
+ call a particular decode function or
+ for a large branch in the protocol decode
+ flow.
+
+ Tag numbers should never be ignored. If a
+ tag number is present that shouldn't be
+ it is an error. QCBOR's design makes
+ it a bit easy to ignore tag numbers.
+ (Need to do something about that).
+
+
+
+
+
+
+
+ */

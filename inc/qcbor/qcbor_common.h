@@ -241,6 +241,9 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /** The 64-bit invalid tag from the CBOR tags registry */
 #define CBOR_TAG_INVALID64 0xffffffffffffffff
 
+/** Used by XXX to indicate no tag was present. */
+#define CBOR_TAG_NONE CBOR_TAG_INVALID32
+
 
 
 /*

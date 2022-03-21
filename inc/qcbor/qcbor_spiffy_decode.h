@@ -164,6 +164,86 @@ extern "C" {
 
 
 
+/* when decoding something like a DateString tag
+ there are a few modes.
+
+ 1) The item is known to be a DateString by context
+ and only a date string. There must be NO tag numbers on it.
+
+
+ 2) The item could be of several different types
+ and there is to be branching in the decode flow
+ based on whether it is a date string or not.
+ The caller should peek at the tag number. If it
+ is a date string then date string decode
+ should be called with the requirement that
+ there be a date string tag number and nothing else.
+
+ (This is a bit inefficient as the check is performed
+ twice).
+
+ (What if there are additional tags?)
+
+
+ 2b) This also works to make the tag number optional.
+
+
+ 3) There
+
+
+
+ Encoding modes
+
+ 1) DateString know from context. No tag numbers.
+
+ 2) DateString or something else distinguihsed by tag number.
+
+ 3) Redundant tag number. Known from context, but also has a tag number.
+
+ -- Encoding a BirthDate (pretend BirthDate tag number exists) ---
+
+ 4) KNown from context that it is a DateString and Birthdate. No tag numbers.
+ BirthDate is always a DateString
+
+ 5) Known from context that it is a birth date, but not whether it is
+ a DateString or some other representation. The DateString is
+ distinguished by tag number
+
+ 6) Could be a BirthDate or something else. A BirthDate tag number
+ indicates this.
+
+
+
+ An argument for every function
+
+
+ Set state in the decode context to ignore for next Get.
+
+
+ A special error code. Caller can choose to ignore it.
+ Error is EXTRA_TAGS.
+
+ Remove the argument to indicate the tag processing.
+
+
+ - Default mode is not to allow unexpected tags
+ - Error generated on unpexpected tags
+ - Error can be ignored by fetching it and checking it; other errors take precedence
+ - Decoding standard tags expects the tag and doesn't generate the error
+
+
+
+
+
+
+
+
+
+
+ */
+
+
+
 
 /** Conversion will proceed if the CBOR item to be decoded is an
     integer or either type 0 (unsigned) or type 1 (negative). */
@@ -1659,7 +1739,7 @@ void QCBORDecode_EnterBstrWrappedFromMapSZ(QCBORDecodeContext *pCtx,
 
 
 /**
- @brief Exit some bstr-wrapped CBOR  has been enetered.
+ @brief Exit some bstr-wrapped CBOR that has been enetered.
 
  @param[in] pCtx   The decode context.
 
@@ -1677,16 +1757,17 @@ void QCBORDecode_ExitBstrWrapped(QCBORDecodeContext *pCtx);
 /*
 
  This positions the traversal cursor at the data item that is the
- value of the map item. It set past the label.
+ value of the map item. It is set past the label.
 
  If GetNext is called, it will return the data item, but
- not the label.
+ not the label.... No this won't work. TODO: figure out what to do.
+ It won't work because GetNext cannot deal with a cursor
+ halfway through a map item.
 
  A primary purpose is so that PeekTagNumber, GetTagNumber and
  ProcessTagNumber can be used on map entries.
 
  If the item is not in the map, TODO: happens.
-
 
  */
 
@@ -1696,6 +1777,39 @@ void QCBORDecode_SeekInMapN(QCBORDecodeContext *pCtx, int64_t nLabel);
 void QCBORDecode_SeekInMapSZ(QCBORDecodeContext *pCtx, const char *szLabel);
 
 
+
+/*
+ * @brief Conditionally check and consume a tag number.
+ *
+ * @param[in]  pCtx          The decoder context.
+ * @param[in] puTagNumbersToMatch  An array of tag numbers to match. Terminated by \ref CBOR_TAG_INVALID64.
+ * @param[out] puTagNumberMatched The tag number that was matched or  \ref CBOR_TAG_INVALID64.
+ * @returns \c true if the tag was matched, false if not or on error.
+ *
+ * This is useful for conditionally branching protocol decoding by tag number.
+ *
+ * If the next data item is a tag number that
+ * matches one in the array \c puTagNumbersToMatch, the tag
+ * number will be consumed and true will be
+ * returned. The tag number matched, one from the list, will
+ * be returned in \c puTagNumberMatched.
+ *
+ * If the next data item is not a tag number
+ * or doesn't match any in thie list, false
+ * will be returned and nothing will be consumed.
+ *
+ * If the CBOR is not-well formed, then false
+ * will be returned and the internal error decode
+ * state will set.
+ *
+ * TODO: this won't work because the tag number is on the value
+ * and you can't leave the cursor in the middle of a map item pair.
+ */
+bool
+QCBORDecode_ProcessTagNumberInMapSZ(QCBORDecodeContext *pCtx,
+                                    const char         *szLabel,
+                                    const uint64_t     *puTagNumbersToMatch,
+                                    uint64_t           *puTagNumberMatched);
 
 
 /* ===========================================================================
