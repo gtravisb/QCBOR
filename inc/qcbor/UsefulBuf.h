@@ -42,6 +42,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
  when         who             what, where, why
  --------     ----            --------------------------------------------------
+ 9/8/2022     llundblade      Add comment about preference for use of const.
  4/11/2022    llundblade      Add GetOutPlace and Advance to UsefulOutBuf.
  9/21/2021    llundbla        Clarify UsefulOutBuf size calculation mode
  8/8/2021     dthaler/llundbla Work with C++ without compiler extensions
@@ -219,6 +220,12 @@ extern "C" {
  * gigabit-per-second IP router), it is probably better to have
  * cleaner code you can be most certain about the security of.
  *
+ * This aims to make maximum use of constness as as a good and 
+ * thorough coding practice. It tell someone reading the code 
+ * a lot about the assumptions in the code and how it should work.
+ * Some good information is here https://matt.sh/sytycc and
+ * https://stackoverflow.com/questions/117293/use-of-const-for-function-parameters
+ * 
  * The non-const @ref UsefulBuf is usually used to refer an empty
  * buffer to be filled in.  The length is the size of the buffer.
  *
